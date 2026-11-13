@@ -19,6 +19,29 @@ cliente ─▶ Nginx :80 ─▶ API (FastAPI) :8000 ─▶ Redis
 | `modulo-05-nginx` | Nginx como reverse proxy |
 | **raiz** (módulo 06) | Stack completa com Prometheus, Grafana e alertas |
 
+## Como usar este repositório
+
+```bash
+git clone https://github.com/alexandreWaltrichRocha/devops-lab.git
+cd devops-lab
+cp .env.example .env        # edite e troque GRAFANA_ADMIN_PASSWORD
+docker compose up -d --build --wait
+```
+
+Só é preciso Docker com Compose v2. A imagem é construída na sua máquina.
+
+**Usando um fork?** O pipeline (`.github/workflows/ci.yml`) publica a imagem em
+`alexandrew2033/devops-lab` no Docker Hub, com os secrets `DOCKER_USERNAME` e
+`DOCKER_PASSWORD` do repositório original. Secrets não passam para forks, então:
+
+- Os jobs de testes e de smoke test funcionam normalmente.
+- O job de build/push só funciona depois que você trocar `IMAGE_NAME` no
+  `ci.yml` pelo seu repositório do Docker Hub e criar os seus próprios secrets.
+- O `k8s/deployment.yml` também aponta para `alexandrew2033/devops-lab:latest`;
+  troque pela sua imagem ou use `./scripts/deploy-local.sh` (build local no Minikube).
+
+Licença: [MIT](LICENSE).
+
 ## Subir a stack completa (Docker Compose)
 
 Requisitos: Docker + Docker Compose v2 (no Windows: Docker Desktop com WSL2).
