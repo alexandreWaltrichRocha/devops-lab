@@ -63,11 +63,14 @@ jobs:
     name: Smoke test da stack
     runs-on: ubuntu-latest
     needs: test
+    env:
+      # No nível do job: o Compose lê a variável em TODO comando (up, logs, down).
+      GRAFANA_ADMIN_PASSWORD: ci
     steps:
       - uses: actions/checkout@v4
 
       - name: Subir stack (aguarda healthchecks)
-        run: GRAFANA_ADMIN_PASSWORD=ci docker compose up -d --build --wait --wait-timeout 120
+        run: docker compose up -d --build --wait --wait-timeout 120
 
       - name: Requisições de verificação
         run: |
