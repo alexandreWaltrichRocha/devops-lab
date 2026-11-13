@@ -1,0 +1,31 @@
+# Para clusters com Prometheus Operator (kube-prometheus-stack).
+# Requer os CRDs instalados; por isso fica FORA de k8s/ (kubectl apply -f k8s/
+# não é recursivo). Aplique com: kubectl apply -f k8s/monitoring/
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: devops-lab
+  labels:
+    # O Prometheus do kube-prometheus-stack só enxerga ServiceMonitors cujo label
+    # `release` seja o nome do release do Helm. AJUSTE se o seu for outro:
+    #   kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitorSelector}'
+    release: kube-prometheus-stack
+spec:
+  # Sem namespaceSelector, o ServiceMonitor procura o Service no PRÓPRIO namespace
+  # em que for aplicado. Aplique-o no mesmo namespace da app (ex.: default). Para
+  # apontar outro namespace, descomente e ajuste:
+  # namespaceSelector:
+  #   matchNames: [meu-namespace]
+  selector:
+    matchLabels:
+      app: devops-lab        # casa com o label do Service devops-lab-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      relabelings:
+        # Mantém job="fastapi-app", o mesmo do Compose, para que o dashboard e
+        # os alertas funcionem sem alteração nos dois ambientes.
+        - action: replace
+          targetLabel: job
+          replacement: fastapi-app

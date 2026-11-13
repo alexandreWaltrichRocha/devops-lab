@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devops-lab-deployment
+  labels:
+    app: devops-lab
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0   # nunca derruba um pod antes do novo ficar Ready
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: devops-lab
+  template:
+    metadata:
+      labels:
+        app: devops-lab
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001          # mesmo UID numérico do Dockerfile
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: devops-lab
+        image: alexandrew2033/devops-lab:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: devops-lab-config
+        resources:
+          requests: {cpu: 50m, memory: 64Mi}
+          limits:   {cpu: 500m, memory: 192Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        # startupProbe: dá tempo de boot sem apertar a liveness
+        startupProbe:
+          httpGet: {path: /health, port: http}
+          periodSeconds: 2
+          failureThreshold: 30
+        # liveness: o processo está vivo? (não depende do Redis)
+        livenessProbe:
+          httpGet: {path: /health, port: http}
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        # readiness: pode receber tráfego? (checa o Redis)
+        readinessProbe:
+          httpGet: {path: /ready, port: http}
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 2

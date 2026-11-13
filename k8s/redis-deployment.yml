@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  replicas: 1            # Redis simples (sem réplicas): não escale este Deployment
+  strategy:
+    type: Recreate       # evita dois Redis ao mesmo tempo durante um rollout
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        # maxmemory < limit do container: ao encher, o Redis recusa escritas em
+        # vez de ser morto por OOM pelo kernel (importante com pouca RAM no WSL2).
+        args: ["--maxmemory", "96mb"]
+        ports:
+        - containerPort: 6379
+        resources:
+          requests: {cpu: 50m, memory: 64Mi}
+          limits:   {cpu: 250m, memory: 128Mi}
+        readinessProbe:
+          exec:
+            command: ["redis-cli", "ping"]
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        livenessProbe:
+          exec:
+            command: ["redis-cli", "ping"]
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      # emptyDir: os dados somem se o pod for recriado (ok para o lab).
+      # Para persistir de verdade, troque por um PersistentVolumeClaim.
+      - name: data
+        emptyDir: {}

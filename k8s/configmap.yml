@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: devops-lab-config
+  labels:
+    app: devops-lab
+data:
+  REDIS_HOST: "redis"      # nome do Service do Redis (ver redis-service.yml)
+  REDIS_PORT: "6379"
+  LOG_LEVEL: "INFO"

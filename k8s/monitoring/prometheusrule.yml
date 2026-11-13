@@ -1,0 +1,41 @@
+# Mesmas regras de prometheus/alerts.yml, no formato do Prometheus Operator.
+# Mantenha os dois em sincronia. Ajuste o label `release` como no ServiceMonitor.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: devops-lab
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+  - name: devops-lab
+    rules:
+    - alert: AppDown
+      expr: up{job="fastapi-app"} == 0
+      for: 30s
+      labels:
+        severity: critical
+      annotations:
+        summary: API fora do ar (alvo {{ $labels.instance }} sem responder ao scrape)
+    - alert: HighErrorRate
+      expr: "sum(rate(http_requests_total{http_status=~\"5..\"}[1m]))\n  / clamp_min(sum(rate(http_requests_total[1m])), 0.001)\
+        \ > 0.05\n"
+      for: 1m
+      labels:
+        severity: warning
+      annotations:
+        summary: Mais de 5% das requisições estão retornando 5xx
+    - alert: HighLatencyP95
+      expr: "histogram_quantile(0.95,\n  sum by (le) (rate(http_request_duration_seconds_bucket[1m]))) > 0.5\n"
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: Latência p95 acima de 500ms
+    - alert: RedisErrors
+      expr: rate(redis_errors_total[1m]) > 0
+      for: 30s
+      labels:
+        severity: critical
+      annotations:
+        summary: A API está falhando ao acessar o Redis
