@@ -28,7 +28,9 @@ spec:
       containers:
       - name: devops-lab
         image: alexandrew2033/devops-lab:latest
-        imagePullPolicy: Always
+        # IfNotPresent: usa a imagem carregada com `minikube image load`. Com
+        # `Always` o kubelet ignora a imagem local e baixa do Docker Hub.
+        imagePullPolicy: IfNotPresent
         ports:
         - name: http
           containerPort: 8000
@@ -47,16 +49,17 @@ spec:
         startupProbe:
           httpGet: {path: /health, port: http}
           periodSeconds: 2
-          failureThreshold: 30
+          timeoutSeconds: 3          # host lento (WSL2): 1s padrão estoura
+          failureThreshold: 45
         # liveness: o processo está vivo? (não depende do Redis)
         livenessProbe:
           httpGet: {path: /health, port: http}
           periodSeconds: 10
-          timeoutSeconds: 2
+          timeoutSeconds: 3
           failureThreshold: 3
         # readiness: pode receber tráfego? (checa o Redis)
         readinessProbe:
           httpGet: {path: /ready, port: http}
           periodSeconds: 5
-          timeoutSeconds: 2
+          timeoutSeconds: 3
           failureThreshold: 2
