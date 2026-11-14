@@ -82,7 +82,7 @@ services:
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:10.4.0
+    image: grafana/grafana:13.3.1
     container_name: grafana-dashboard
     ports:
       - "127.0.0.1:3000:3000"   # só acessível da própria máquina
