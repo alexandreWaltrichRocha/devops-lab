@@ -5,12 +5,18 @@ Endpoints:
   /health   liveness  -> processo está vivo (NÃO depende de nada externo)
   /ready    readiness -> pronto para receber tráfego (checa o Redis)
   /metrics  métricas Prometheus
+
+Logs: JSON por padrão (uma linha por requisição; /health e /metrics ficam de fora).
 """
+import json
 import logging
 import os
 import time
+from datetime import datetime, timezone
 
 import redis
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from prometheus_client import (
@@ -20,8 +26,43 @@ from prometheus_client import (
     generate_latest,
 )
 
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
-log = logging.getLogger("devops-lab")
+
+
+# --- Logs estruturados -------------------------------------------------------
+# Uma linha JSON por evento: fácil de filtrar com `jq` e de ingerir em Loki/ELK.
+# LOG_FORMAT=text volta ao formato legível para depuração local.
+_LOG_ATTRS = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {"message", "asctime"}
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": datetime.fromtimestamp(record.created, timezone.utc).isoformat(timespec="milliseconds"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        # Campos passados via `extra={...}` entram no JSON.
+        payload.update({k: v for k, v in record.__dict__.items() if k not in _LOG_ATTRS})
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _setup_logging() -> logging.Logger:
+    logger = logging.getLogger("devops-lab")
+    logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        if os.getenv("LOG_FORMAT", "json") == "json":
+            handler.setFormatter(JsonFormatter())
+        else:
+            handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        logger.addHandler(handler)
+    return logger
+
+
+log = _setup_logging()
 
 app = FastAPI(title="DevOps Lab")
 
@@ -30,13 +71,24 @@ app = FastAPI(title="DevOps Lab")
 # requisição indefinidamente e esgota o threadpool do servidor.
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-r = redis.Redis(
-    host=REDIS_HOST,
-    port=REDIS_PORT,
-    decode_responses=True,
-    socket_connect_timeout=1,
-    socket_timeout=1,
-)
+
+
+def make_redis(host: str, port: int) -> redis.Redis:
+    # Retry(NoBackoff(), 0): sem retentativas. As versões recentes do redis-py fazem 3
+    # tentativas com espera crescente por padrão, e uma requisição com o Redis fora
+    # demoraria ~4s em vez de falhar rápido (travando threads e queimando o SLO de
+    # latência). Aqui queremos o 503 imediato; quem reintenta é o cliente HTTP.
+    return redis.Redis(
+        host=host,
+        port=port,
+        decode_responses=True,
+        socket_connect_timeout=1,
+        socket_timeout=1,
+        retry=Retry(NoBackoff(), 0),
+    )
+
+
+r = make_redis(REDIS_HOST, REDIS_PORT)
 
 # --- Métricas --------------------------------------------------------------
 REQUEST_COUNT = Counter(
@@ -78,8 +130,18 @@ async def metrics_middleware(request: Request, call_next):
         return response
     finally:
         endpoint = _endpoint_label(request)
+        elapsed = time.perf_counter() - start
         REQUEST_COUNT.labels(request.method, endpoint, str(status)).inc()
-        REQUEST_LATENCY.labels(endpoint).observe(time.perf_counter() - start)
+        REQUEST_LATENCY.labels(endpoint).observe(elapsed)
+        log.info(
+            "request",
+            extra={
+                "method": request.method,
+                "endpoint": endpoint,
+                "status": status,
+                "duration_ms": round(elapsed * 1000, 2),
+            },
+        )
 
 
 # --- Rotas -----------------------------------------------------------------

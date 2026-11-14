@@ -59,6 +59,26 @@ services:
       - '--storage.tsdb.retention.size=2GB'
     depends_on:
       - web
+      - alertmanager
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1   # >= 0.28 para aceitar webhook_url_file no Discord
+    container_name: alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"   # só acessível da própria máquina
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
     restart: unless-stopped
 
   grafana:
@@ -83,3 +103,4 @@ volumes:
   redis_data:
   prometheus_data:
   grafana_data:
+  alertmanager_data:

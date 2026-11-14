@@ -6,13 +6,24 @@ cd "$(dirname "$0")/.."
 
 grep -q '"/health"' app/main.py || { echo "ERRO: app/main.py sem /health (código antigo?)" >&2; exit 1; }
 
-IMG="alexandrew2033/devops-lab:local-$(date +%Y%m%d%H%M%S)"
+BASE_IMAGE="alexandrew2033/devops-lab"
+IMG="${BASE_IMAGE}:local-$(date +%Y%m%d%H%M%S)"
 
 docker build -t "$IMG" .
 minikube image load "$IMG"
 
-kubectl apply -f k8s/
-kubectl set image deployment/devops-lab-deployment devops-lab="$IMG"
+# Tudo menos o Deployment da API (que vai com a tag imutável, logo abaixo).
+for f in k8s/*.yml; do
+  [[ "$f" == "k8s/deployment.yml" ]] && continue
+  kubectl apply -f "$f"
+done
+
+# O manifesto traz `:latest` só como valor padrão. Aqui ele é trocado pela tag única
+# ANTES do apply, então o cluster nunca recebe `latest` e há um único rollout.
+RENDERED="$(sed "s|image: ${BASE_IMAGE}:latest|image: ${IMG}|" k8s/deployment.yml)"
+grep -q "image: ${IMG}" <<<"$RENDERED" || { echo "ERRO: não achei a imagem no deployment.yml" >&2; exit 1; }
+kubectl apply -f - <<<"$RENDERED"
+
 kubectl rollout status deployment/devops-lab-deployment --timeout=180s
 
 echo

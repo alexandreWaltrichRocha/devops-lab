@@ -1,0 +1,58 @@
+name: Segurança
+
+# Roda em PR, em push na main e toda segunda-feira (novas CVEs aparecem sem mudança de código).
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+# Sem secrets e com token somente-leitura: se uma ferramenta de terceiros for
+# comprometida, ela não tem o que roubar nem onde escrever.
+permissions:
+  contents: read
+
+jobs:
+  dependencias:
+    name: Vulnerabilidades nas dependências Python (pip-audit)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: pip-audit
+        run: |
+          pip install pip-audit==2.10.1
+          pip-audit -r app/requirements.txt
+
+  trivy:
+    name: Imagem e configuração (Trivy, só relatório)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build da imagem (sem push)
+        run: docker build -t devops-lab:scan .
+
+      # Trivy é usado via container na 0.69.3, versão confirmada como segura no aviso
+      # GHSA-69fq-xp46-6x23 (as releases 0.69.4 a 0.69.6 e as tags antigas da
+      # trivy-action foram comprometidas em março/2026). Não use `latest`.
+      # Exporta a imagem para arquivo: o scanner não precisa do socket do Docker.
+      - name: Exportar imagem
+        run: docker save devops-lab:scan -o "$RUNNER_TEMP/image.tar"
+
+      - name: Trivy - vulnerabilidades da imagem
+        run: |
+          docker run --rm -v "$RUNNER_TEMP:/work:ro" aquasec/trivy:0.69.3 \
+            image --input /work/image.tar --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0
+
+      - name: Trivy - configuração (Dockerfile, Kubernetes, Compose)
+        run: |
+          docker run --rm -v "$PWD:/src:ro" aquasec/trivy:0.69.3 \
+            config --severity HIGH,CRITICAL --exit-code 0 /src
+        # --exit-code 0: só relatório por enquanto. Depois de limpar os achados,
+        # troque por --exit-code 1 para o pipeline passar a bloquear.

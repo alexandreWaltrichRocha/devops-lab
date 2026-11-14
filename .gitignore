@@ -7,3 +7,7 @@ venv/
 *:Zone.Identifier
 .env
 .pytest_cache/
+
+# Segredo do Alertmanager (webhook do Discord) e configs locais
+alertmanager/discord_webhook_url
+alertmanager/*.local.yml

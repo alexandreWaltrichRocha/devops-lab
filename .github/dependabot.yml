@@ -1,0 +1,31 @@
+# Dependabot abre PRs semanais para atualizar dependências. O CI (e o workflow de
+# segurança) roda em cada PR, então a atualização só entra se tudo continuar verde.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /app
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly

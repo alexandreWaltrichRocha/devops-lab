@@ -1,0 +1,90 @@
+# Testes unitários das regras. Rodar:
+#   promtool test rules prometheus/tests/alerts_test.yml
+# (o CI roda isso via Docker; veja .github/workflows/ci.yml)
+rule_files:
+  - ../alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # 1) Tudo falhando (100% de 5xx a 10 req/s): o alerta rápido tem que disparar.
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{http_status="500",endpoint="/"}'
+        values: '0+600x120'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: ErrorBudgetBurnFast
+        exp_alerts: []          # condição acabou de ficar verdadeira: ainda "pending" (for: 2m)
+      - eval_time: 30m
+        alertname: ErrorBudgetBurnFast
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: Orçamento de erro queimando 14x mais rápido que o sustentável (esgota em ~2 dias)
+              runbook_url: https://github.com/alexandreWaltrichRocha/devops-lab/blob/main/docs/runbooks/error-budget-burn.md
+
+  # 2) Tráfego saudável (0,1% de erro, abaixo do orçamento de 0,5%): nada dispara.
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{http_status="200",endpoint="/"}'
+        values: '0+599x240'
+      - series: 'http_requests_total{http_status="500",endpoint="/"}'
+        values: '0+1x240'
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: ErrorBudgetBurnFast
+        exp_alerts: []
+      - eval_time: 3h
+        alertname: ErrorBudgetBurnSlow
+        exp_alerts: []
+
+  # 3) Erro isolado com tráfego quase nulo (1 req/hora com falha): a guarda de
+  #    volume impede um page por amostra minúscula.
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{http_status="500",endpoint="/"}'
+        values: '0+0x60 1+0x60'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: ErrorBudgetBurnFast
+        exp_alerts: []
+
+  # 4) Alvo some: AppDown dispara depois do "for: 30s".
+  - interval: 15s
+    input_series:
+      - series: 'up{job="fastapi-app",instance="web:8000"}'
+        values: '1x4 0x20'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: AppDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: fastapi-app
+              instance: web:8000
+            exp_annotations:
+              summary: API fora do ar (alvo web:8000 sem responder ao scrape)
+              runbook_url: https://github.com/alexandreWaltrichRocha/devops-lab/blob/main/docs/runbooks/app-down.md
+
+  # 5) Latência: 100% das requisições acima de 250ms (nenhuma no bucket 0.25).
+  - interval: 1m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{le="0.25",endpoint="/"}'
+        values: '0+0x120'
+      - series: 'http_request_duration_seconds_bucket{le="+Inf",endpoint="/"}'
+        values: '0+600x120'
+      - series: 'http_request_duration_seconds_count{endpoint="/"}'
+        values: '0+600x120'
+      - series: 'http_requests_total{http_status="200",endpoint="/"}'
+        values: '0+600x120'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: LatencyBudgetBurn
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Mais de 30% das requisições acima de 250ms (SLO de latência queimando 6x)
+              runbook_url: https://github.com/alexandreWaltrichRocha/devops-lab/blob/main/docs/runbooks/high-latency.md

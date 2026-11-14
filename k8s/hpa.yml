@@ -1,0 +1,26 @@
+# Autoescala por CPU. Requer o metrics-server:
+#   minikube addons enable metrics-server
+# Sem ele o HPA fica com "<unknown>" e não escala (o Deployment segue com 2 pods).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: devops-lab-hpa
+  labels:
+    app: devops-lab
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: devops-lab-deployment
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70    # % do `requests.cpu` (50m) de cada pod
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 120   # evita "serrote": espera antes de reduzir
