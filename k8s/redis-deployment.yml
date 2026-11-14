@@ -21,7 +21,7 @@ spec:
         image: redis:7-alpine
         # maxmemory < limit do container: ao encher, o Redis recusa escritas em
         # vez de ser morto por OOM pelo kernel (importante com pouca RAM no WSL2).
-        args: ["--maxmemory", "96mb"]
+        args: ["--maxmemory", "96mb", "--appendonly", "yes"]
         ports:
         - containerPort: 6379
         resources:
@@ -41,7 +41,7 @@ spec:
         - name: data
           mountPath: /data
       volumes:
-      # emptyDir: os dados somem se o pod for recriado (ok para o lab).
-      # Para persistir de verdade, troque por um PersistentVolumeClaim.
+      # Volume persistente: o contador sobrevive à recriação do pod (veja redis-pvc.yml).
       - name: data
-        emptyDir: {}
+        persistentVolumeClaim:
+          claimName: redis-data

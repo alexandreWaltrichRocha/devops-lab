@@ -1,0 +1,23 @@
+# Só os pods da API podem falar com o Redis (porta 6379). Qualquer outro pod do
+# namespace é bloqueado. ATENÇÃO: só tem efeito se o CNI do cluster aplicar
+# NetworkPolicy (Calico, Cilium...). No Minikube: `minikube start --cni=calico`.
+# Em CNIs sem suporte, o objeto é aceito e simplesmente ignorado.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-allow-only-api
+  labels:
+    app: redis
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes: ["Ingress"]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: devops-lab
+    ports:
+    - protocol: TCP
+      port: 6379

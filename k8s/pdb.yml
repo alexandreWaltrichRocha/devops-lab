@@ -1,0 +1,13 @@
+# Garante que ao menos 1 pod da API fique de pé durante manutenções voluntárias
+# (kubectl drain, upgrade de nó). Não protege contra falhas involuntárias.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: devops-lab-pdb
+  labels:
+    app: devops-lab
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: devops-lab

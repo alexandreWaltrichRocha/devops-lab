@@ -1,0 +1,92 @@
+name: Kubernetes E2E (kind)
+
+# Sobe um cluster kind efêmero no runner, faz deploy com os manifests reais e confere
+# que a app fica pronta e que o Redis fora do ar NÃO reinicia os pods (liveness x readiness).
+# É um workflow separado para não bloquear o CI principal enquanto estiver em ajuste.
+on:
+  pull_request:
+    paths:
+      - "k8s/**"
+      - "app/**"
+      - "Dockerfile"
+      - "scripts/deploy*.sh"
+      - ".github/workflows/k8s-e2e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      IMAGE: alexandrew2033/devops-lab
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Criar cluster kind (kind e kubectl já vêm no runner)
+        run: kind create cluster --wait 120s
+
+      - name: Build da imagem e carga no cluster
+        run: |
+          docker build -t "$IMAGE:e2e" .
+          kind load docker-image "$IMAGE:e2e"
+
+      - name: Aplicar manifests (com a imagem do PR, nunca :latest)
+        run: |
+          for f in k8s/*.yml; do
+            [ "$f" = "k8s/deployment.yml" ] && continue
+            kubectl apply -f "$f"
+          done
+          sed "s|image: $IMAGE:latest|image: $IMAGE:e2e|" k8s/deployment.yml | kubectl apply -f -
+
+      - name: Aguardar Redis e API ficarem prontos
+        run: |
+          kubectl rollout status deployment/redis --timeout=120s
+          kubectl rollout status deployment/devops-lab-deployment --timeout=180s
+          kubectl get pods -o wide
+
+      - name: API responde via Service
+        run: |
+          kubectl port-forward svc/devops-lab-service 8080:80 >/dev/null 2>&1 &
+          sleep 3
+          curl -fsS http://localhost:8080/ready
+          curl -fsS http://localhost:8080/ | grep '"total_visitors"'
+
+      - name: Redis fora do ar não reinicia a API (readiness x liveness)
+        run: |
+          kubectl scale deployment/redis --replicas=0
+          kubectl wait --for=delete pod -l app=redis --timeout=60s
+          # Fala direto com UM pod da API (o Service não envia tráfego a pod não-Ready).
+          POD="$(kubectl get pods -l app=devops-lab -o jsonpath='{.items[0].metadata.name}')"
+          kubectl port-forward "pod/$POD" 8081:8000 >/dev/null 2>&1 &
+          sleep 3
+          # /ready tem que dar 503 enquanto o Redis está fora...
+          CODE=""
+          for _ in $(seq 1 15); do
+            CODE="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/ready || true)"
+            [ "$CODE" = "503" ] && break
+            sleep 2
+          done
+          [ "$CODE" = "503" ] || { echo "esperava 503 em /ready, veio: $CODE" >&2; exit 1; }
+          # ...mas /health segue 200 e nenhum pod da API pode ter reiniciado.
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/health)" = "200"
+          RESTARTS="$(kubectl get pods -l app=devops-lab -o jsonpath='{.items[*].status.containerStatuses[0].restartCount}')"
+          echo "restarts: $RESTARTS"
+          for n in $RESTARTS; do [ "$n" = "0" ] || { echo "pod da API reiniciou" >&2; exit 1; }; done
+          # Volta o Redis e confirma a recuperação.
+          kubectl scale deployment/redis --replicas=1
+          kubectl rollout status deployment/redis --timeout=120s
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:8081/ready >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "API não se recuperou depois que o Redis voltou" >&2; exit 1
+
+      - name: Diagnóstico em caso de falha
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl logs -l app=devops-lab --tail=50 || true

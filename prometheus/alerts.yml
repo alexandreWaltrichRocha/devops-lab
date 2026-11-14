@@ -1,36 +1,124 @@
-# Regras de alerta. Sem Alertmanager elas aparecem em http://localhost:9090/alerts
-# (suficiente para o lab; para notificar de verdade, adicione o Alertmanager).
+# Regras de alerta e de gravação (recording rules) do SLO.
+# A fonte da verdade é ESTE arquivo. O formato do Prometheus Operator
+# (k8s/monitoring/prometheusrule.yml) é GERADO por: python scripts/sync_rules.py
+# O CI falha se os dois divergirem (python scripts/sync_rules.py --check).
+#
+# SLOs (detalhes e justificativa em docs/SLO.md):
+#   Disponibilidade: 99,5% das requisições sem 5xx (orçamento de erro = 0,5%)
+#   Latência:        95% das requisições abaixo de 250ms (orçamento = 5%)
 groups:
+  - name: devops-lab-slo-recording
+    rules:
+      # Razão de erros (5xx / total) em várias janelas.
+      # clamp_min no denominador: sem tráfego a razão é 0, não NaN.
+      - record: sli:http_error_ratio:rate5m
+        expr: |
+          sum(rate(http_requests_total{http_status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 0.001)
+      - record: sli:http_error_ratio:rate30m
+        expr: |
+          sum(rate(http_requests_total{http_status=~"5.."}[30m]))
+            / clamp_min(sum(rate(http_requests_total[30m])), 0.001)
+      - record: sli:http_error_ratio:rate1h
+        expr: |
+          sum(rate(http_requests_total{http_status=~"5.."}[1h]))
+            / clamp_min(sum(rate(http_requests_total[1h])), 0.001)
+      - record: sli:http_error_ratio:rate6h
+        expr: |
+          sum(rate(http_requests_total{http_status=~"5.."}[6h]))
+            / clamp_min(sum(rate(http_requests_total[6h])), 0.001)
+      - record: sli:http_error_ratio:rate3d
+        expr: |
+          sum(rate(http_requests_total{http_status=~"5.."}[3d]))
+            / clamp_min(sum(rate(http_requests_total[3d])), 0.001)
+
+      # Razão de requisições lentas (mais de 250ms). le="0.25" é um bucket padrão.
+      - record: sli:http_slow_ratio:rate5m
+        expr: |
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{le="0.25"}[5m]))
+              / clamp_min(sum(rate(http_request_duration_seconds_count[5m])), 0.001)
+          )
+      - record: sli:http_slow_ratio:rate1h
+        expr: |
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{le="0.25"}[1h]))
+              / clamp_min(sum(rate(http_request_duration_seconds_count[1h])), 0.001)
+          )
+
+      # Tráfego (req/s) na última hora: usado para não alertar com amostra minúscula.
+      - record: sli:http_requests:rate1h
+        expr: sum(rate(http_requests_total[1h]))
+
   - name: devops-lab
     rules:
       - alert: AppDown
         expr: up{job="fastapi-app"} == 0
         for: 30s
-        labels: {severity: critical}
+        labels:
+          severity: critical
         annotations:
-          summary: "API fora do ar (alvo {{ $labels.instance }} sem responder ao scrape)"
-
-      - alert: HighErrorRate
-        expr: |
-          sum(rate(http_requests_total{http_status=~"5.."}[1m]))
-            / clamp_min(sum(rate(http_requests_total[1m])), 0.001) > 0.05
-        for: 1m
-        labels: {severity: warning}
-        annotations:
-          summary: "Mais de 5% das requisições estão retornando 5xx"
-
-      - alert: HighLatencyP95
-        expr: |
-          histogram_quantile(0.95,
-            sum by (le) (rate(http_request_duration_seconds_bucket[1m]))) > 0.5
-        for: 2m
-        labels: {severity: warning}
-        annotations:
-          summary: "Latência p95 acima de 500ms"
+          summary: API fora do ar (alvo {{ $labels.instance }} sem responder ao scrape)
+          runbook_url: https://github.com/alexandreWaltrichRocha/devops-lab/blob/main/docs/runbooks/app-down.md
 
       - alert: RedisErrors
         expr: rate(redis_errors_total[1m]) > 0
         for: 30s
-        labels: {severity: critical}
+        labels:
+          severity: critical
         annotations:
-          summary: "A API está falhando ao acessar o Redis"
+          summary: A API está falhando ao acessar o Redis
+          runbook_url: https://github.com/alexandreWaltrichRocha/devops-lab/blob/main/docs/runbooks/redis-errors.md
+
+      # Burn rate de disponibilidade (SRE Workbook, cap. 5): alerta quando o orçamento
+      # de erro está sendo consumido rápido demais, em duas janelas (longa e curta) para
+      # reagir rápido e também parar de alertar logo que o problema acaba.
+      # Orçamento = 0,005. Burn 14,4x = 0,072 | 6x = 0,03 | 1x = 0,005.
+      - alert: ErrorBudgetBurnFast
+        expr: |
+          sli:http_error_ratio:rate1h > (14.4 * 0.005)
+          and sli:http_error_ratio:rate5m > (14.4 * 0.005)
+          and sli:http_requests:rate1h > 0.01
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Orçamento de erro queimando 14x mais rápido que o sustentável (esgota em ~2 dias)
+          runbook_url: https://github.com/alexandreWaltrichRocha/devops-lab/blob/main/docs/runbooks/error-budget-burn.md
+
+      - alert: ErrorBudgetBurnSlow
+        expr: |
+          sli:http_error_ratio:rate6h > (6 * 0.005)
+          and sli:http_error_ratio:rate30m > (6 * 0.005)
+          and sli:http_requests:rate1h > 0.01
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: Orçamento de erro queimando 6x mais rápido que o sustentável (esgota em ~5 dias)
+          runbook_url: https://github.com/alexandreWaltrichRocha/devops-lab/blob/main/docs/runbooks/error-budget-burn.md
+
+      - alert: ErrorBudgetBurnSteady
+        expr: |
+          sli:http_error_ratio:rate3d > 0.005
+          and sli:http_error_ratio:rate6h > 0.005
+          and sli:http_requests:rate1h > 0.01
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Erros acima do orçamento sustentável há dias (abrir ticket, não acordar ninguém)
+          runbook_url: https://github.com/alexandreWaltrichRocha/devops-lab/blob/main/docs/runbooks/error-budget-burn.md
+
+      # Burn rate de latência (SLO de 95% abaixo de 250ms => orçamento 0,05; 6x = 0,30).
+      - alert: LatencyBudgetBurn
+        expr: |
+          sli:http_slow_ratio:rate1h > (6 * 0.05)
+          and sli:http_slow_ratio:rate5m > (6 * 0.05)
+          and sli:http_requests:rate1h > 0.01
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Mais de 30% das requisições acima de 250ms (SLO de latência queimando 6x)
+          runbook_url: https://github.com/alexandreWaltrichRocha/devops-lab/blob/main/docs/runbooks/high-latency.md

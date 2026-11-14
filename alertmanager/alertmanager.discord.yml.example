@@ -1,0 +1,32 @@
+# Para ativar notificações no Discord:
+#   1. No Discord: Configurações do canal > Integrações > Webhooks > Novo webhook > Copiar URL.
+#   2. Salve a URL num arquivo (NUNCA no Git; este nome já está no .gitignore):
+#        printf '%s' 'https://discord.com/api/webhooks/XXXX/YYYY' > alertmanager/discord_webhook_url
+#   3. cp alertmanager/alertmanager.discord.yml.example alertmanager/alertmanager.yml
+#   4. Monte o segredo no serviço alertmanager do docker-compose.yml:
+#        volumes:
+#          - ./alertmanager/discord_webhook_url:/etc/alertmanager/discord_webhook_url:ro
+#   5. docker compose up -d alertmanager
+route:
+  receiver: discord
+  group_by: [alertname]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+
+receivers:
+  - name: discord
+    discord_configs:
+      - webhook_url_file: /etc/alertmanager/discord_webhook_url
+        send_resolved: true
+        title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+        message: |
+          {{ range .Alerts }}**{{ .Annotations.summary }}**
+          Severidade: {{ .Labels.severity }}
+          Runbook: {{ .Annotations.runbook_url }}
+          {{ end }}
+
+inhibit_rules:
+  - source_matchers: [alertname = AppDown]
+    target_matchers: [alertname =~ "ErrorBudgetBurn.*|LatencyBudgetBurn|RedisErrors"]
+    equal: []

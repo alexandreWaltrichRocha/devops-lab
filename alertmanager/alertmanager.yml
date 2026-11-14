@@ -1,0 +1,18 @@
+# Alertmanager do lab. Por padrão NÃO envia notificações: os alertas aparecem na
+# interface em http://localhost:9093. Para receber no Discord, veja
+# alertmanager/alertmanager.discord.yml.example e a seção "Notificações" do README.
+route:
+  receiver: ui-only
+  group_by: [alertname]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+
+receivers:
+  - name: ui-only
+
+inhibit_rules:
+  # Se a API está fora do ar, os alertas de erro/latência são consequência: silencia.
+  - source_matchers: [alertname = AppDown]
+    target_matchers: [alertname =~ "ErrorBudgetBurn.*|LatencyBudgetBurn|RedisErrors"]
+    equal: []
