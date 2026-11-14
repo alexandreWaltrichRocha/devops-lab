@@ -63,7 +63,7 @@ services:
     restart: unless-stopped
 
   alertmanager:
-    image: prom/alertmanager:v0.28.1   # >= 0.28 para aceitar webhook_url_file no Discord
+    image: prom/alertmanager:v0.35.0   # >= 0.28 para aceitar webhook_url_file no Discord
     container_name: alertmanager
     ports:
       - "127.0.0.1:9093:9093"   # só acessível da própria máquina
