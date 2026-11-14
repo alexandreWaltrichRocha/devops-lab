@@ -1,6 +1,6 @@
 services:
   nginx:
-    image: nginx:1.25-alpine
+    image: nginx:1.29-alpine
     container_name: nginx-proxy-obs
     ports:
       - "80:80"
