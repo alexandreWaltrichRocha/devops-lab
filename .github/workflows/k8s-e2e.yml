@@ -23,7 +23,7 @@ jobs:
     env:
       IMAGE: alexandrew2033/devops-lab
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Criar cluster kind (kind e kubectl já vêm no runner)
         run: kind create cluster --wait 120s
