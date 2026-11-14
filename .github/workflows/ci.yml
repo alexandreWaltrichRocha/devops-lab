@@ -24,10 +24,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout do código
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Configurar Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -85,7 +85,7 @@ jobs:
       # No nível do job: o Compose lê a variável em TODO comando (up, logs, down).
       GRAFANA_ADMIN_PASSWORD: ci
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Subir stack (aguarda healthchecks)
         run: docker compose up -d --build --wait --wait-timeout 120
@@ -133,7 +133,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [test, smoke-test]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v4
 
