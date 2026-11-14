@@ -44,7 +44,7 @@ services:
     restart: unless-stopped
 
   prometheus:
-    image: prom/prometheus:v2.51.0
+    image: prom/prometheus:v3.16.0
     container_name: prometheus-server
     ports:
       - "127.0.0.1:9090:9090"   # só acessível da própria máquina
