@@ -1,11 +1,11 @@
 # ---- Estágio 1: builder (instala dependências) ----
-FROM python:3.11-alpine AS builder
+FROM python:3.15-alpine AS builder
 WORKDIR /app
 COPY app/requirements.txt .
 RUN pip install --no-cache-dir --target=/install -r requirements.txt
 
 # ---- Estágio 2: runner (imagem final enxuta) ----
-FROM python:3.11-alpine AS runner
+FROM python:3.15-alpine AS runner
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
